@@ -1,0 +1,13 @@
+{
+  "name": "color-quality-checker",
+  "version": "1.0.0",
+  "description": "Figma plugin to audit color variable usage before dev handoff",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "*",
+    "typescript": "^5.3.0"
+  }
+}
