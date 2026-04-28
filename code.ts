@@ -8,6 +8,7 @@ interface ColorError {
   property: 'Fill' | 'Stroke';
   errorType: 'Style' | 'Raw value';
   value: string;
+  path: string[];
 }
 
 type PluginMessage =
@@ -45,7 +46,8 @@ function auditPaints(
   paints: ReadonlyArray<Paint>,
   styleId: string | symbol | undefined,
   property: 'Fill' | 'Stroke',
-  errors: ColorError[]
+  errors: ColorError[],
+  path: string[]
 ): void {
   // A style reference on any paint counts as an error — styles ≠ variables.
   if (typeof styleId === 'string' && styleId.length > 0) {
@@ -55,6 +57,7 @@ function auditPaints(
       property,
       errorType: 'Style',
       value: resolveStyleName(styleId),
+      path,
     });
     // No need to dig into individual paints; the style drives them all.
     return;
@@ -71,12 +74,13 @@ function auditPaints(
         property,
         errorType: 'Raw value',
         value: rgbToHex(solid.color.r, solid.color.g, solid.color.b),
+        path,
       });
     }
   }
 }
 
-function auditNode(node: SceneNode, errors: ColorError[]): void {
+function auditNode(node: SceneNode, errors: ColorError[], path: string[]): void {
   // ── Fills ──
   if ('fills' in node) {
     const n = node as SceneNode & {
@@ -86,7 +90,7 @@ function auditNode(node: SceneNode, errors: ColorError[]): void {
     const fills = n.fills;
     if (fills !== figma.mixed && fills.length > 0) {
       const sid = n.fillStyleId;
-      auditPaints(node, fills, sid as string | symbol | undefined, 'Fill', errors);
+      auditPaints(node, fills, sid as string | symbol | undefined, 'Fill', errors, path);
     }
   }
 
@@ -99,7 +103,7 @@ function auditNode(node: SceneNode, errors: ColorError[]): void {
     const strokes = n.strokes;
     if (strokes.length > 0) {
       const sid = n.strokeStyleId;
-      auditPaints(node, strokes, sid as string | symbol | undefined, 'Stroke', errors);
+      auditPaints(node, strokes, sid as string | symbol | undefined, 'Stroke', errors, path);
     }
   }
 }
@@ -109,13 +113,14 @@ function auditNode(node: SceneNode, errors: ColorError[]): void {
  * COMPONENT_SET, INSTANCE, and any other container with children.
  * For INSTANCE nodes, Figma already exposes overriding children via .children.
  */
-function traverse(node: SceneNode, errors: ColorError[]): void {
-  auditNode(node, errors);
+function traverse(node: SceneNode, errors: ColorError[], path: string[] = []): void {
+  const currentPath = [...path, node.name];
+  auditNode(node, errors, currentPath);
 
   if ('children' in node) {
     const parent = node as SceneNode & { children: ReadonlyArray<SceneNode> };
     for (const child of parent.children) {
-      traverse(child, errors);
+      traverse(child, errors, currentPath);
     }
   }
 }

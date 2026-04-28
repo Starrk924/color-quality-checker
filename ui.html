@@ -214,6 +214,35 @@
       background: #e5e7eb;
     }
 
+    /* ── Breadcrumb ── */
+    .breadcrumb {
+      font-size: 10px;
+      color: currentColor;
+      opacity: 0.5;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 3px;
+    }
+    .breadcrumb-sep { margin: 0 2px; }
+    .breadcrumb-last { font-weight: 600; opacity: 1; }
+
+    /* ── Group section ── */
+    .group-section { display: flex; flex-direction: column; gap: 8px; }
+    .group-section > summary {
+      list-style: none;
+      font-size: 11px;
+      font-weight: 600;
+      color: #555;
+      padding: 2px 0 6px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .group-section > summary::-webkit-details-marker { display: none; }
+    .group-section > summary::before { content: '▾ '; font-size: 9px; }
+    .group-section[open] > summary::before { content: '▾ '; }
+    .group-section:not([open]) > summary::before { content: '▸ '; }
+
     /* ── Scrollbar ── */
     .results::-webkit-scrollbar { width: 6px; }
     .results::-webkit-scrollbar-track { background: transparent; }
@@ -286,53 +315,117 @@
         </div>`;
     }
 
-    function renderErrors(errors) {
-      const count = errors.length;
-      let html = `
-        <div class="summary">
-          ❌&nbsp; ${count} error${count !== 1 ? 's' : ''} found
-        </div>`;
+    function buildCard(e) {
+      const card = document.createElement('div');
+      card.className = 'error-card';
 
-      for (const e of errors) {
-        const propTag    = e.property === 'Fill'
-          ? '<span class="tag tag-fill">Fill</span>'
-          : '<span class="tag tag-stroke">Stroke</span>';
-        const errTag     = e.errorType === 'Style'
-          ? '<span class="tag tag-style">Style</span>'
-          : '<span class="tag tag-raw">Raw value</span>';
+      const info = document.createElement('div');
+      info.className = 'card-info';
 
-        const isHex  = /^#[0-9a-f]{6}$/i.test(e.value);
-        const detail = isHex
-          ? `<div class="color-row">
-               <span class="swatch" style="background:${esc(e.value)}"></span>
-               <span class="color-value">${esc(e.value)}</span>
-             </div>`
-          : `<div class="color-row">
-               <span class="style-value">🎨 ${esc(e.value)}</span>
-             </div>`;
-
-        html += `
-          <div class="error-card">
-            <div class="card-info">
-              <div class="layer-name" title="${esc(e.nodeName)}">${esc(e.nodeName)}</div>
-              <div class="tags">${propTag}${errTag}</div>
-              ${detail}
-            </div>
-            <button class="btn-focus" data-id="${esc(e.nodeId)}">Focus</button>
-          </div>`;
+      // Breadcrumb
+      if (e.path && e.path.length > 0) {
+        const crumb = document.createElement('div');
+        crumb.className = 'breadcrumb';
+        const ancestors = e.path.slice(0, -1);
+        const lastName  = e.path[e.path.length - 1];
+        let crumbHTML = ancestors
+          .map(n => `<span>${esc(n)}</span>`)
+          .join('<span class="breadcrumb-sep">›</span>');
+        if (crumbHTML) crumbHTML += '<span class="breadcrumb-sep">›</span>';
+        crumbHTML += `<span class="breadcrumb-last">${esc(lastName)}</span>`;
+        crumb.innerHTML = crumbHTML;
+        info.appendChild(crumb);
       }
 
-      results.innerHTML = html;
+      // Layer name
+      const name = document.createElement('div');
+      name.className = 'layer-name';
+      name.title = e.nodeName;
+      name.textContent = e.nodeName;
+      info.appendChild(name);
 
-      // Wire up Focus buttons
-      results.querySelectorAll('.btn-focus').forEach(btn => {
-        btn.addEventListener('click', () => {
-          parent.postMessage(
-            { pluginMessage: { type: 'focus', nodeId: btn.getAttribute('data-id') } },
-            '*'
-          );
-        });
+      // Tags
+      const tags = document.createElement('div');
+      tags.className = 'tags';
+      const propTag = document.createElement('span');
+      propTag.className = e.property === 'Fill' ? 'tag tag-fill' : 'tag tag-stroke';
+      propTag.textContent = e.property;
+      const errTag = document.createElement('span');
+      errTag.className = e.errorType === 'Style' ? 'tag tag-style' : 'tag tag-raw';
+      errTag.textContent = e.errorType;
+      tags.appendChild(propTag);
+      tags.appendChild(errTag);
+      info.appendChild(tags);
+
+      // Color detail
+      const row = document.createElement('div');
+      row.className = 'color-row';
+      if (/^#[0-9a-f]{6}$/i.test(e.value)) {
+        const swatch = document.createElement('span');
+        swatch.className = 'swatch';
+        swatch.style.background = e.value;
+        const val = document.createElement('span');
+        val.className = 'color-value';
+        val.textContent = e.value;
+        row.appendChild(swatch);
+        row.appendChild(val);
+      } else {
+        const val = document.createElement('span');
+        val.className = 'style-value';
+        val.textContent = '🎨 ' + e.value;
+        row.appendChild(val);
+      }
+      info.appendChild(row);
+
+      // Focus button
+      const btn = document.createElement('button');
+      btn.className = 'btn-focus';
+      btn.textContent = 'Focus';
+      btn.addEventListener('click', () => {
+        parent.postMessage(
+          { pluginMessage: { type: 'focus', nodeId: e.nodeId } },
+          '*'
+        );
       });
+
+      card.appendChild(info);
+      card.appendChild(btn);
+      return card;
+    }
+
+    function renderErrors(errors) {
+      results.innerHTML = '';
+
+      const count = errors.length;
+      const summary = document.createElement('div');
+      summary.className = 'summary';
+      summary.textContent = `❌  ${count} error${count !== 1 ? 's' : ''} found`;
+      results.appendChild(summary);
+
+      // Group by top-level frame (path[0])
+      const groups = new Map();
+      for (const e of errors) {
+        const key = (e.path && e.path[0]) ?? '(unknown)';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(e);
+      }
+
+      const multipleGroups = groups.size > 1;
+
+      for (const [frameName, frameErrors] of groups) {
+        if (multipleGroups) {
+          const section = document.createElement('details');
+          section.className = 'group-section';
+          section.open = true;
+          const sum = document.createElement('summary');
+          sum.textContent = `${frameName}  (${frameErrors.length})`;
+          section.appendChild(sum);
+          for (const e of frameErrors) section.appendChild(buildCard(e));
+          results.appendChild(section);
+        } else {
+          for (const e of frameErrors) results.appendChild(buildCard(e));
+        }
+      }
     }
 
     // ── Loading state ───────────────────────────────────────────────────────
